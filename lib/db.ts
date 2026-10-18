@@ -181,6 +181,9 @@ const SCHEMA_STATEMENTS: SqlStatement[] = [
   { sql: "CREATE INDEX IF NOT EXISTS idx_claims_parent ON claims(parent_id)" },
   { sql: "CREATE INDEX IF NOT EXISTS idx_claims_visibility ON claims(visibility)" },
   { sql: "CREATE INDEX IF NOT EXISTS idx_claims_active ON claims(state, is_final)" },
+  { sql: "CREATE INDEX IF NOT EXISTS idx_claims_visibility_state ON claims(visibility, state)" },
+  { sql: "CREATE INDEX IF NOT EXISTS idx_claims_visibility_category ON claims(visibility, category)" },
+  { sql: "CREATE INDEX IF NOT EXISTS idx_claims_visibility_creator ON claims(visibility, creator)" },
   { sql: `CREATE TABLE IF NOT EXISTS challengers (
     claim_id BIGINT NOT NULL,
     address TEXT NOT NULL,
