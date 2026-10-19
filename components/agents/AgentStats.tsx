@@ -44,24 +44,34 @@ const WINDOW_LABELS: Record<TimeWindow, string> = {
  * rendered per window anyway, and a link is shareable and works without JS.
  */
 export function TimeWindowTabs({
-  active, basePath,
-}: { active: TimeWindow; basePath: string }) {
+  active, basePath, params,
+}: {
+  active: TimeWindow;
+  basePath: string;
+  /** Query params preserved alongside `window` — e.g. `?ids=` on the compare page. */
+  params?: Record<string, string>;
+}) {
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Time window">
-      {TIME_WINDOWS.map((window) => (
-        <Link
-          key={window}
-          href={window === "all" ? basePath : `${basePath}?window=${window}`}
-          aria-current={window === active ? "page" : undefined}
-          className={`border px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider transition-colors ${
-            window === active
-              ? "border-pv-emerald/45 bg-pv-emerald/[0.1] text-pv-text"
-              : "border-pv-ink/[0.12] text-pv-muted hover:border-pv-ink/[0.25] hover:text-pv-text"
-          }`}
-        >
-          {WINDOW_LABELS[window]}
-        </Link>
-      ))}
+      {TIME_WINDOWS.map((window) => {
+        const search = new URLSearchParams(params);
+        if (window !== "all") search.set("window", window);
+        const query = search.toString();
+        return (
+          <Link
+            key={window}
+            href={query ? `${basePath}?${query}` : basePath}
+            aria-current={window === active ? "page" : undefined}
+            className={`border px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider transition-colors ${
+              window === active
+                ? "border-pv-emerald/45 bg-pv-emerald/[0.1] text-pv-text"
+                : "border-pv-ink/[0.12] text-pv-muted hover:border-pv-ink/[0.25] hover:text-pv-text"
+            }`}
+          >
+            {WINDOW_LABELS[window]}
+          </Link>
+        );
+      })}
     </div>
   );
 }
