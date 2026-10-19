@@ -23,6 +23,7 @@ import { getMarketContractId, getStellarRpcUrl } from "../../lib/stellar";
 import { reportingPoll } from "../../lib/ops/heartbeat";
 import { reconcileSettlements } from "../../lib/server/settlement-index";
 import { reconcileVsIndex } from "../../lib/server/vs-index";
+import { reconcileAgentReputations } from "../../lib/agents/reputation";
 import {
   BackoffError,
   DependencyFailureError,
@@ -71,6 +72,18 @@ async function poll(): Promise<void> {
       `${fees.payouts} pull payout(s), ${fees.claims} fee claim(s) · ` +
       `ledgers ${fees.fromLedger}→${fees.toLedger}${fees.truncated ? " (truncated — will resume)" : ""}`,
   );
+
+  // Reputation is a projection over the settlements just reconciled. It is
+  // display-only, so a failure here must never redden the sync pass that keeps
+  // the market index fresh — the next poll recomputes from the same rows.
+  try {
+    const reputation = await reconcileAgentReputations();
+    console.log(
+      `[sync]    reputation: ${reputation.scanned} agent(s) scanned, ${reputation.updated} updated`,
+    );
+  } catch (err) {
+    console.warn("[sync] reputation reconcile failed (observational — will retry next poll):", err);
+  }
 }
 
 async function main(): Promise<void> {

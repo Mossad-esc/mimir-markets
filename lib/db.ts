@@ -1752,6 +1752,29 @@ export async function upsertAgentRecord(agent: AgentRecord): Promise<void> {
   }
 }
 
+/**
+ * Store an observational reputation recomputation.
+ *
+ * Deliberately its own statement rather than a reuse of `upsertAgentRecord`:
+ * the sync worker refreshes reputation for every agent on every pass, and a
+ * full-row upsert would rewrite limits, status and capabilities from a stale
+ * in-memory copy just to move one display column. Reputation is observational —
+ * this UPDATE is the only writer, and it touches nothing an authorization path
+ * reads.
+ */
+export async function updateAgentReputationBps(
+  agentId: string,
+  reputationBps: number,
+  at: number,
+): Promise<void> {
+  const pool = await getDb();
+  await execute(pool, {
+    sql: `UPDATE agent_registry SET reputation_bps = ?, updated_at = ?
+      WHERE agent_id = ?`,
+    args: [reputationBps, at, agentId],
+  });
+}
+
 export async function getAgentRecord(agentId: string): Promise<AgentRecord | null> {
   const pool = await getDb();
   const [record, capabilities] = await Promise.all([
