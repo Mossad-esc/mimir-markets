@@ -7,72 +7,36 @@ import { VS_CACHE_HEADERS } from "@/lib/server/vs-cache";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATES = ["open", "active", "resolved", "cancelled"] as const;
-type VsState = (typeof VALID_STATES)[number];
-const VALID_CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
-
-interface ParsedVsParams extends VsFeedOptions {
-  forceRefresh: boolean;
+export function computeVsEtag(updatedAt: string | number | null | undefined, count: number): string {
+  const maxUpdatedAt = updatedAt == null ? "0" : String(updatedAt);
+  return `W/"${maxUpdatedAt}-${count}"`;
 }
 
-export function parseVsListParams(searchParams: URLSearchParams): 
-  | { kind: "ok"; params: ParsedVsParams }
-  | { kind: "error"; status: number; body: unknown; headers: Record<string, string> } {
-  const refreshValue = searchParams.get("refresh");
-  if (refreshValue && refreshValue !== "1") {
-    return { kind: "error", ...apiError("invalid_request", "refresh must be 1 when provided", { field: "refresh" }) };
-  }
-  const forceRefresh = refreshValue === "1";
+export function isEtagMatch(ifNoneMatch: string | null, ifNoneMatchWeak: string | null, etag: string): boolean {
+  const header = ifNoneMatch ?? ifNoneMatchWeak;
+  if (!header) return false;
+  const tokens = header.split(",").map((t) => t.trim());
+  if (tokens.includes("*")) return true;
+  const normalize = (value: string) => value.replace(/^W\//, "");
+  const target = normalize(etag);
+  return tokens.some((t) => normalize(t) === target);
+}
 
-  const cursorValue = searchParams.get("cursor");
-  const limitValue = searchParams.get("limit");
-  const cursor = cursorValue ? Number(cursorValue) : undefined;
-  const limit = limitValue ? Number(limitValue) : undefined;
-  if (cursor !== undefined && (isNaN(cursor) || cursor <= 0)) {
-    return { kind: "error", ...apiError("invalid_request", "cursor must be a positive integer", { field: "cursor" }) };
+function resolveMaxUpdatedAt(items: Array<Record<string, unknown>>): string | number | null {
+  let max: string | number | null = null;
+  for (const item of items) {
+    const value = item.updated_at as string | number | null | undefined;
+    if (value == null) continue;
+    if (max === null || value > max) max = value;
   }
-  if (limit !== undefined && (isNaN(limit) || limit <= 0 || limit > 100)) {
-    return { kind: "error", ...apiError("invalid_request", "limit must be between 1 and 100", { field: "limit" }) };
-  }
-
-  const categoryRaw = searchParams.get("category");
-  const category = categoryRaw ? categoryRaw.trim() : undefined;
-  if (category !== undefined && !VALID_CATEGORY_IDS.has(category)) {
-    return { kind: "error", ...apiError("invalid_request", "invalid category", { field: "category" }) };
-  }
-
-  const stateValues = searchParams.getAll("state");
-  const states = stateValues.length > 0 ? stateValues : undefined;
-  if (states !== undefined && states.some((s) => !VALID_STATES.includes(s as VsState))) {
-    return { kind: "error", ...apiError("invalid_request", "invalid state", { field: "state" }) };
-  }
-
-  const creatorRaw = searchParams.get("creator");
-  const creator = creatorRaw === null ? undefined : creatorRaw.trim();
-  if (creator !== undefined && creator.length === 0) {
-    return { kind: "error", ...apiError("invalid_request", "creator must be a non-empty address", { field: "creator" }) };
-  }
-
-  const providedSort = searchParams.get("sort");
-  const sortRaw = (providedSort ?? "newest").toLowerCase();
-  let sort: VsSort;
-  if (!["newest", "expiring", "updated"].includes(sortRaw)) {
-    if (providedSort !== null && providedSort !== "") {
-      return { kind: "error", ...apiError("invalid_request", "invalid sort", { field: "sort" }) };
-    }
-    sort = "newest";
-  } else {
-    sort = sortRaw as VsSort;
-  }
-
-  return { kind: "ok", params: { forceRefresh, cursor, limit, category, states, creator, sort } };
+  return max;
 }
 
 export async function GET(request: Request) {
   try {
     const { authorizeRequest } = await import("@/lib/api/policy");
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
-    const gate = authorizeRequest("public_read", { route: "/api/vs", ip });
+    const gate = await authorizeRequest("public_read", { route: "/api/vs", ip });
     if (!gate.allowed && gate.error) {
       return NextResponse.json(gate.error.body, { status: gate.error.status, headers: gate.error.headers });
     }
@@ -91,6 +55,18 @@ export async function GET(request: Request) {
       creator,
       sort,
     });
+
+    const maxUpdatedAt = resolveMaxUpdatedAt(items as Array<Record<string, unknown>>);
+    const etag = computeVsEtag(maxUpdatedAt, items.length);
+    const ifNoneMatch = request.headers.get("if-none-match");
+
+    if (isEtagMatch(ifNoneMatch, null, etag)) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: { ...VS_CACHE_HEADERS, ETag: etag },
+      });
+    }
+
     return NextResponse.json(
       {
         items,
@@ -99,7 +75,7 @@ export async function GET(request: Request) {
         nextCursor,
       },
       {
-        headers: VS_CACHE_HEADERS,
+        headers: { ...VS_CACHE_HEADERS, ETag: etag },
       }
     );
   } catch {

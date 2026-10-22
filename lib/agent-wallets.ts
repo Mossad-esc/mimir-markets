@@ -96,9 +96,18 @@ function normalizeSecret(raw: string | undefined, envVar: string): string {
 }
 
 /** Build a wallet from an explicit secret-seed env var. */
-export function loadAgentWallet(envVar: string): AgentWallet {
+export function loadAgentWallet(
+  envVar: string,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): AgentWallet {
   const name = secretEnvName(envVar);
-  const keypair = Keypair.fromSecret(normalizeSecret(process.env[name], name));
+  const secret = normalizeSecret(env[name], name);
+  let keypair: Keypair;
+  try {
+    keypair = Keypair.fromSecret(secret);
+  } catch {
+    throw new Error(`${name} must be a Stellar secret seed (S… , 56 chars)`);
+  }
   return walletFromKeypair(keypair);
 }
 
@@ -115,12 +124,16 @@ export function walletFromKeypair(keypair: Keypair): AgentWallet {
   };
 }
 
-export function getOracleWallet(): AgentWallet {
-  return loadAgentWallet("ORACLE_SECRET");
+export function getOracleWallet(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): AgentWallet {
+  return loadAgentWallet("ORACLE_SECRET", env);
 }
 
-export function getCreatorWallet(): AgentWallet {
-  return loadAgentWallet("CREATOR_SECRET");
+export function getCreatorWallet(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): AgentWallet {
+  return loadAgentWallet("CREATOR_SECRET", env);
 }
 
 export function councilEnvSlug(slug: string): string {
@@ -135,13 +148,19 @@ export function councilPublicEnv(slug: string): string {
   return `COUNCIL_${councilEnvSlug(slug)}_PUBLIC`;
 }
 
-export function getCouncilWallet(slug: string): AgentWallet {
-  return loadAgentWallet(councilSecretEnv(slug));
+export function getCouncilWallet(
+  slug: string,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): AgentWallet {
+  return loadAgentWallet(councilSecretEnv(slug), env);
 }
 
 /** Public key of a persona without touching its seed (web-server safe). */
-export function getCouncilAddress(slug: string): string | undefined {
-  const value = process.env[councilPublicEnv(slug)]?.split(/\s+#/)[0].trim();
+export function getCouncilAddress(
+  slug: string,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): string | undefined {
+  const value = env[councilPublicEnv(slug)]?.split(/\s+#/)[0].trim();
   return value && isAccountAddress(value) ? value : undefined;
 }
 
@@ -227,6 +246,74 @@ export interface AgentBalances {
   usdc: number | null;
   exists: boolean;
   hasTrustline: boolean;
+}
+
+/** One agent's balance row, as emitted by `--json`. */
+export interface AgentBalanceRow {
+  role: string;
+  address: string;
+  exists: boolean;
+  xlm: number | null;
+  usdc: number | null;
+  trustline: boolean;
+}
+
+/** Thresholds for {@link checkBalanceThresholds}. `null` disables a check. */
+export interface BalanceThresholds {
+  minXlm?: number | null;
+  minUsdc?: number | null;
+}
+
+/**
+ * Build the machine-readable row for one agent from a {@link readAgentBalances}
+ * result. Kept pure so it can be unit-tested with fixture balances.
+ */
+export function formatAgentBalanceRow(
+  role: string,
+  address: string,
+  balances: AgentBalances,
+): AgentBalanceRow {
+  return {
+    role,
+    address,
+    exists: balances.exists,
+    xlm: balances.xlm,
+    usdc: balances.usdc,
+    trustline: balances.hasTrustline,
+  };
+}
+
+/**
+ * Serialize balance rows for `--json` output. Pure so the CLI can be tested
+ * with fixture balances and the output is guaranteed to parse with `jq`.
+ */
+export function formatAgentBalancesJson(rows: AgentBalanceRow[]): string {
+  return JSON.stringify(rows, null, 2);
+}
+
+/**
+ * Return the roles whose balance is below a configured threshold.
+ *
+ * A missing account (or missing trustline) counts as below any positive
+ * threshold, since the operator asked for "at least N" and there is nothing
+ * there. An empty result means every agent passed.
+ */
+export function checkBalanceThresholds(
+  rows: AgentBalanceRow[],
+  thresholds: BalanceThresholds,
+): AgentBalanceRow[] {
+  const minXlm = thresholds.minXlm ?? null;
+  const minUsdc = thresholds.minUsdc ?? null;
+  if (minXlm === null && minUsdc === null) return [];
+  return rows.filter((row) => {
+    if (minXlm !== null) {
+      if (!row.exists || row.xlm === null || row.xlm < minXlm) return true;
+    }
+    if (minUsdc !== null) {
+      if (!row.trustline || row.usdc === null || row.usdc < minUsdc) return true;
+    }
+    return false;
+  });
 }
 
 /**

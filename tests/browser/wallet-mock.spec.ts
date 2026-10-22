@@ -51,11 +51,9 @@ test.describe("wallet-gated money paths", () => {
     trackPageErrors(page, errors);
 
     await page.goto("/en/explorer", { waitUntil: "domcontentloaded" });
-    // The header button shows "Connect" and is labelled "Connect wallet" for
-    // screen readers; only the viewport's visible variant is in the a11y tree.
     await page
       .getByRole("banner")
-      .getByRole("button", { name: "Connect wallet", exact: true })
+      .getByRole("button", { name: "Connect", exact: true })
       .click();
 
     const dialog = page.getByRole("dialog", { name: "Connect wallet" });
@@ -68,6 +66,24 @@ test.describe("wallet-gated money paths", () => {
     // Dismissing must leave the page intact.
     await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+
+  test("a payout card never offers a parked withdraw on an unconfigured chain", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    trackPageErrors(page, errors);
+
+    // The smoke build has no market contract and no connected wallet, so there
+    // is no signer to read a parked balance for. The card must fail closed: the
+    // parked-payout withdraw surface stays hidden rather than offering a money
+    // action it cannot back.
+    await page.goto("/en/vs/1", { waitUntil: "domcontentloaded" });
+    await expectMainLandmark(page);
+    await expect(
+      page.getByTestId("parked-payout-card"),
+    ).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 });
