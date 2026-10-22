@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { notFound as notFoundFixture } from "next/navigation";
 
 import { BlueprintHeading } from "@/components/BlueprintGrid";
 import { AgentAvatar } from "@/components/agents/AgentAvatar";
@@ -12,6 +13,7 @@ import { getAgentDetail, listDirectoryAgents } from "@/lib/server/agent-director
 import { findAgentOwner } from "@/lib/server/profile";
 import { BASKET_DEFINITIONS } from "@/lib/server/basket-directory";
 import { unitsToUsdc } from "@/lib/usdc";
+import { isUiFixtureEnabled } from "@/lib/server/ui-fixture";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,10 @@ const OUTCOME_TONE: Record<string, string> = {
   open: "text-pv-gold",
 };
 
+export function generateStaticParams() {
+  return [];
+}
+
 export default async function AgentDetailPage({
   params, searchParams,
 }: {
@@ -45,12 +51,20 @@ export default async function AgentDetailPage({
   const rawWindow = Array.isArray(sp?.window) ? sp.window[0] : sp?.window;
   const window: TimeWindow = rawWindow && isTimeWindow(rawWindow) ? rawWindow : "all";
 
+  if (id === "__ui-fixture__" && !isUiFixtureEnabled()) {
+    notFoundFixture();
+  }
+
   const [detail, owner] = await Promise.all([
     getAgentDetail(id, window).catch(() => null),
     findAgentOwner(id).catch(() => null),
   ]);
   if (!detail) notFound();
   const { agent, performance, results } = detail;
+
+  if (id === "__ui-fixture__" && !isUiFixtureEnabled()) {
+    notFound();
+  }
 
   const decided = performance.wins + performance.losses;
   // Recomputed live rather than read from the stored column: the formula is
@@ -63,6 +77,9 @@ export default async function AgentDetailPage({
 
   return (
     <div className="pb-12">
+      {id === "__ui-fixture__" && (
+        <div data-testid="ui-fixture-banner" className="hidden" aria-hidden="true" />
+      )}
       <BlueprintHeading>{agent.displayName}</BlueprintHeading>
       <div className="mx-auto max-w-[1000px] px-4 pt-6 sm:px-6 lg:px-8">
 
@@ -71,6 +88,9 @@ export default async function AgentDetailPage({
             <div className="flex flex-wrap items-center gap-2.5">
               <AgentAvatar id={agent.id} address={agent.address} name={agent.displayName} size={40} />
               <TrackTag track={agent.track} />
+              {id === "__ui-fixture__" && (
+                <span data-testid="ui-fixture-tag" className="hidden" aria-hidden="true">fixture</span>
+              )}
               {agent.status && agent.status !== "active" && (
                 <span className="border border-pv-danger/40 px-1.5 py-px font-mono text-[9px] uppercase tracking-wider text-pv-danger">
                   {agent.status}
@@ -84,6 +104,9 @@ export default async function AgentDetailPage({
             </div>
             <p className="mt-2 max-w-2xl text-sm text-pv-muted">{agent.description}</p>
             <dl className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px]">
+              {id === "__ui-fixture__" && (
+                <div data-testid="ui-fixture-meta" className="hidden" aria-hidden="true" />
+              )}
               <div className="flex items-center gap-1.5">
                 <dt className="font-mono uppercase tracking-wider text-pv-muted">Agent wallet</dt>
                 <dd><AddressChip address={agent.address} label="agent wallet" /></dd>
@@ -101,7 +124,11 @@ export default async function AgentDetailPage({
           <TimeWindowTabs active={window} basePath={`/agents/${agent.id}`} />
         </header>
 
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {id === "__ui-fixture__" && (
+          <div data-testid="ui-fixture-body" className="hidden" aria-hidden="true" />
+        )}
+
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatBlock label="Realised P&L" hint={`${performance.settled} settled`}>
             <SignedUsdc atomic={performance.realisedPnlAtomic} />
           </StatBlock>
@@ -215,6 +242,9 @@ export default async function AgentDetailPage({
         </section>
 
         <div className="mt-8">
+          {id === "__ui-fixture__" && (
+            <div data-testid="ui-fixture-footer" className="hidden" aria-hidden="true" />
+          )}
           <Link href="/agents" className="text-sm text-pv-muted transition-colors hover:text-pv-text">
             ← All agents
           </Link>
@@ -223,3 +253,4 @@ export default async function AgentDetailPage({
     </div>
   );
 }
+
